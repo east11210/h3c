@@ -4,6 +4,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <wait.h>
 #include "eapol.h"
 #include "h3c.h"
 #include "md5.h"
@@ -160,8 +161,6 @@ void h3c_daemon() {
     if (pid > 0)
         exit(EXIT_SUCCESS);
 
-    umask(0);
-    openlog("h3c", LOG_CONS, LOG_USER);
     pid_t sid = setsid();
 
     if (sid < 0)
@@ -177,6 +176,25 @@ void h3c_daemon() {
     signal(SIGTSTP, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
     signal(SIGTTIN, SIG_IGN);
-    h3c_run();
-    exit(EXIT_SUCCESS);
+
+    umask(0);
+    openlog("h3c", LOG_CONS, LOG_USER);
+    syslog(LOG_INFO, "Start daemon");
+
+    while (true) {
+        pid = fork();
+        if (0 == pid) {
+            h3c_run();
+            exit(EXIT_SUCCESS);
+        } else if (0 < pid) {
+            int status = 0;
+            pid_t wait_pid;
+            syslog(LOG_INFO, "Start child %d\n", pid);
+            do {
+                wait_pid = waitpid(pid, &status, 0);
+                syslog(LOG_INFO, "Child %d exited, will restart later!\n", wait_pid);
+            } while (wait_pid != pid && -1 != wait_pid);
+        }
+        sleep(5);
+    }
 }
